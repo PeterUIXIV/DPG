@@ -28,9 +28,12 @@ d = {1: (255, 175, 0),  # blueish color
 action_space = ['0', '0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.7', '0.8', '0.9', '1']
 n_actions = len(action_space)
 
+
 class DPG:
 
     def __init__(self):
+        self.mu1 = 0
+        self.mu2 = 0
         self.beta1 = 5
         self.beta2 = -3
         self.sigmaS = 1
@@ -44,25 +47,35 @@ class DPG:
 
     def action(self, choice1, choice2):
 
-        global price1
-        X1 = np.random.normal(0, self.sigmaS1 ** .5)
-        X2 = np.random.normal(0, self.sigmaS2 ** .5)
+        X1 = np.random.normal(self.mu1, self.sigmaS1 ** .5)
+        X2 = np.random.normal(self.mu2, self.sigmaS2 ** .5)
         epsilon = np.random.normal(0, self.sigmaS ** .5)
         Y = X1 * self.beta1 + X2 * self.beta2 + epsilon
 
-        if choice1 == '0':
-            #TODO: X_tilde is set to the expected value of the corresponding predictor mu_j
+        if choice1 == '0' and choice2 == '0':
             s_square1 = self.sigmaS1
+            X1tilde = self.mu1
             s_square2 = self.sigmaS2
-        elif choice2 == '0':
+            X2tilde = self.mu2
+            # TODO: what to do?
+        elif choice1 == '0' and choice2 != '0':
+            # TODO: X_tilde is set to the expected value of the corresponding predictor mu_j
             s_square1 = self.sigmaS1
+            X1tilde = self.mu1
+            s_square2 = float(choice2)
+            X2tilde = X2 + np.random.normal(0, s_square2 ** .5)
+        elif choice1 != '0' and choice2 == '0':
+            s_square1 = float(choice1)
+            X1tilde = X1 + np.random.normal(0, s_square1 ** .5)
             s_square2 = self.sigmaS2
+            X2tilde = self.mu2
         else:
             s_square1 = float(choice1)
             s_square2 = float(choice2)
+            X1tilde = X1 + np.random.normal(0, s_square1 ** .5)
+            X2tilde = X2 + np.random.normal(0, s_square2 ** .5)
 
-        X1tilde = X1 + np.random.normal(0, s_square1 ** .5)
-        X2tilde = X2 + np.random.normal(0, s_square2 ** .5)
+
         Ytilde_1 = X1tilde * self.beta1
         Ytilde_2 = X2tilde * self.beta2
         Ytilde = X1tilde * self.beta1 + X2tilde * self.beta2
@@ -108,12 +121,11 @@ episode_rewards = []
 
 for episode in range(HM_EPISODES):
     dpg = DPG()
-    #new parameter
+    # new parameter
     episode_reward = 0
 
-
     if np.random.uniform() > epsilon:
-        #only one observation/state
+        # only one observation/state
         action1Id = np.argmax(q_table1[0])
         action1 = action_space[action1Id]
         action2Id = np.argmax(q_table2[0])

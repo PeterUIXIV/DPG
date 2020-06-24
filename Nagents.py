@@ -5,35 +5,62 @@ from matplotlib import style
 import time
 import math
 import itertools
+import pandas as pd
 
 style.use("ggplot")
 
-SIZE = 1
+SHOW_EVERY = 6000  # how often to play through env visually.
 
-HM_EPISODES = 100000
-eps = 0.9  # randomness
-EPS_DECAY = 0.9998  # Every episode will be epsilon*EPS_DECAY
-SHOW_EVERY = 10000  # how often to play through env visually.
-
-start_q_table1 = None  # if we have a pickled Q table, we'll put the filename of it here.
-start_q_table2 = None
-
-LEARNING_RATE = 0.1
-DISCOUNT = 0.95
 
 action_space = ['0', '0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.7', '0.8', '0.9', '1']
-n_actions = len(action_space)
+
+
+class Agent:
+    def __init__(self, learning_rate=0.1, reward_decay=0.95, eps_greedy=0.9, eps_decay=0.9996):
+        self.learning_rate = learning_rate
+        # gamma, discount, reward decay
+        self.gamma = reward_decay
+        # epsilon
+        self.eps_greedy = eps_greedy
+        self.eps_decay = eps_decay
+        # Q-table
+        self.q_table = pd.DataFrame(0, index=[0], columns=action_space)
+
+    def choose_action(self):
+        if np.random.uniform() > self.eps_greedy:
+            # only one observation/state
+            # exploitation
+            state_action = self.q_table.loc[0, :]
+            state_action = state_action.reindex(np.random.permutation(state_action.index))
+            action = state_action.idxmax()
+        else:
+            # exploration
+            action = np.random.choice(action_space)
+        return action
+
+    def learn(self, action, reward):
+        # update q_table
+        current_q = self.q_table.loc[0, action]
+        max_future_q = self.q_table.loc[0, :].max()
+        new_q = current_q + self.learning_rate * ((reward + self.gamma * max_future_q) - current_q)
+        self.q_table.loc[0, action] = new_q
+
+        self.eps_greedy *= self.eps_decay
 
 
 class DPG:
-    def __init__(self):
+    def __init__(self, agents):
         self.mu = np.array([0, 0])
         self.sigma_square_s = np.array([0.5, 0.3])
         self.beta = np.array([5, -3])
         self.sigma_square = 1
         self.r_max = 15
-        # Shapley or LOO
-        self.pricing_mechanism = 'LOO'
+        self.agents = agents
+        # shapley or LOO
+        self.pricing_mechanism = 'shapley'
+
+        self.episode_rewards = []
+        self.episode_rewards_sum = []
 
     def v(self, indices, y_tilde_s, y):
         sum_y_tilde_s = 0
@@ -46,7 +73,11 @@ class DPG:
         for perm in itertools.permutations(range(n)):
             for i in perm:
                 if perm[i] == j:
+                    # print(f"perm[:i +1]: {perm[:i+1]}, perm[:i]: {perm[:i]}")
+                    # print(f"p = {p}")
                     p += self.v(perm[:i + 1], y_tilde_s, y) - self.v(perm[:i], y_tilde_s, y)
+                    # print(f"p = {p}, v(perm[:i+1]) = {self.v(perm[:i+1], y_tilde_s, y)}, v(perm[:i] = {self.v(perm[:i], y_tilde_s, y)}")
+                    # print(f"p = {p/math.factorial(n)}")
         return p / math.factorial(n)
 
     def loo(self, y_tilde_s, y, j, n):
@@ -55,46 +86,96 @@ class DPG:
         p = self.v(range(n), y_tilde_s, y) - self.v(x, y_tilde_s, y)
         return p
 
-    def action(self, choices):
-        n = len(choices)
+    def step(self, actions):
+        n = len(actions)
         s_square_s = np.zeros(n)
         x_s = np.zeros(n)
         x_tilde_s = np.zeros(n)
         y_tilde_s = np.zeros(n)
         i: int
         for i in range(n):
-            x_s[i] = np.random.normal(self.mu[i], self.sigma_square_s[i])
+            x_s[i] = np.random.normal(self.mu[i], self.sigma_square_s[i] ** .5)
 
-            if choices[i] == '0':
+            if actions[i] == '0':
                 s_square_s[i] = self.sigma_square_s[i]
                 x_tilde_s[i] = self.mu[i]
             else:
-                s_square_s[i] = float(choices[i])
+                s_square_s[i] = float(actions[i])
                 x_tilde_s[i] = x_s[i] + np.random.normal(0, s_square_s[i] ** .5)
 
             y_tilde_s[i] = x_tilde_s[i] * self.beta[i]
-            y_tilde = sum(x_tilde_s * self.beta)
+            # y_tilde = sum(x_tilde_s * self.beta)
 
         epsilon = np.random.normal(0, self.sigma_square ** .5)
 
         y = sum(x_s * self.beta) + epsilon
         # Y = X1 * self.beta1 + X2 * self.beta2 + epsilon
+        # TODO: testing
+        #y_tilde_s = np.array([2.395, 1.338])
+        #y = 2.459
+        #s_square_s = np.array([0.1, 0.1])
 
         prices = np.zeros(n)
         costs = np.zeros(n)
         profits = np.zeros(n)
         for i in range(n):
+            # print(f"y_tilde_s: {y_tilde_s}, y: {y}, i: {i}, n: {n}")
             if self.pricing_mechanism == 'shapley':
                 prices[i] = self.shapley(y_tilde_s, y, i, n)
             elif self.pricing_mechanism == 'LOO':
                 prices[i] = self.loo(y_tilde_s, y, i, n)
-            costs[i] = (self.sigma_square_s[i] / s_square_s[i]) + math.log10(s_square_s[i]) - \
-                       (1 + math.log10(self.sigma_square_s[i]))
+            costs[i] = (self.sigma_square_s[i] / s_square_s[i]) + math.log10(s_square_s[i]) - (1 + math.log10(self.sigma_square_s[i]))
+            # print(f"player {i}, costs: {costs[i]}")
             profits = prices - costs
+            # print(f"player {i}, profit: {profits[i]}")
         return profits
         # TODO: is this correct?
 
+    def train(self, episodes=10000):
+        # print(f"episodes: {episodes}")
+        for episode in range(episodes):
+            # print(f"episode: {episode}")
+            actions = []
+            for agent in self.agents:
+                action = agent.choose_action()
+                actions.append(action)
 
+            rewards = self.step(actions)
+
+            for j in range(len(agents)):
+                # print(f"player {j} action: {actions[j]} profit: {rewards[j]}")
+                self.agents[j].learn(actions[j], rewards[j])
+
+            self.episode_rewards.append(rewards)
+            episode_reward = sum(rewards)
+            self.episode_rewards_sum.append(episode_reward)
+
+            if episode % SHOW_EVERY == 0:
+                show = True
+                # print(f"Episode: #{episode}")
+                print(f"{SHOW_EVERY} episode mean: {np.mean(self.episode_rewards_sum[-SHOW_EVERY:])}")
+                for j in range(len(agents)):
+                    print(f"player {j} epsilon: {agents[j].eps_greedy}")
+                    print(f"player {j} action: {actions[j]} profit: {rewards[j]}")
+                    print(f"player {j} q-table")
+                    print(agents[j].q_table)
+            else:
+                show = False
+        moving_avg_sum = np.convolve(self.episode_rewards_sum, np.ones((SHOW_EVERY,)) / SHOW_EVERY, mode='valid')
+
+        # moving_avg = []
+        rewards_per_agent = list(zip(*self.episode_rewards))
+        for j in range(len(self.agents)):
+            moving_avg = np.convolve(rewards_per_agent[j], np.ones((SHOW_EVERY,)) / SHOW_EVERY, mode='valid')
+            plt.plot([i for i in range(len(moving_avg))], moving_avg)
+        plt.plot([i for i in range(len(moving_avg_sum))], moving_avg_sum)
+
+        plt.legend(['agent 1', 'agent 2', 'sum'], loc='upper left')
+        plt.ylabel(f"Reward {SHOW_EVERY}ma")
+        plt.xlabel("episode #")
+        plt.show()
+
+'''
 if start_q_table1 is None:
     q_table1 = {}
     for i in range(SIZE):
@@ -110,66 +191,24 @@ if start_q_table2 is None:
 else:
     with open(start_q_table2, "rb") as f:
         q_table2 = pickle.load(f)
+'''
 
-episode_rewards = []
-
-for episode in range(HM_EPISODES):
-    dpg = DPG()
-    # new parameter
-    episode_reward = 0
-
-    if np.random.uniform() > eps:
-        # only one observation/state
-        action1Id = int(np.argmax(q_table1[0]))
-        action1 = action_space[action1Id]
-        action2Id = int(np.argmax(q_table2[0]))
-        action2 = action_space[action2Id]
-    else:
-        action1Id = np.random.randint(0, 10)
-        action1 = action_space[action1Id]
-        action2Id = np.random.randint(0, 10)
-        action2 = action_space[action2Id]
-
-    dpg.action(action1, action2)
-
-    if episode % SHOW_EVERY == 0:
-        print(f"on #{episode}, epsilon is {eps}")
-        print(f"{SHOW_EVERY} ep mean: {np.mean(episode_rewards[-SHOW_EVERY:])}")
-        print(f"player1 action: {action1} profit2: {dpg.profit1}")
-        print(f"player2 action: {action2} profit2 {dpg.profit2}")
-        print(q_table1)
-
-        show = True
-    else:
-        show = False
-
-    max_future_q1 = np.max(q_table1[0])
-    max_future_q2 = np.max(q_table1[0])
-    current_q1 = q_table1[0][action1Id]
-    current_q2 = q_table2[0][action2Id]
-
-    new_q1 = current_q1 + LEARNING_RATE * ((dpg.profit1 + DISCOUNT * max_future_q1) - current_q1)
-    new_q2 = current_q2 + LEARNING_RATE * ((dpg.profit2 + DISCOUNT * max_future_q2) - current_q2)
-
-    q_table1[0][action1Id] = new_q1
-    q_table2[0][action2Id] = new_q2
-    # new_q1 = (1 - LEARNING_RATE) * current_q1 + LEARNING_RATE * (dpg.price1 + DISCOUNT * max_future_q)
-
-    episode_reward += dpg.profit1 + dpg.profit2
-    episode_rewards.append(episode_reward)
-    eps *= EPS_DECAY
-    # print(episode_reward)
-
-moving_avg = np.convolve(episode_rewards, np.ones((SHOW_EVERY,)) / SHOW_EVERY, mode='valid')
-
-plt.plot([i for i in range(len(moving_avg))], moving_avg)
-plt.ylabel(f"Reward {SHOW_EVERY}ma")
-plt.xlabel("episode #")
-plt.show()
 # plt.plot([i for i in range(len(episode_rewards))], episode_rewards)
 # plt.ylabel(f"Reward")
 # plt.xlabel(f"episode #")
 # plt.show()
+'''
+def save_q_table():
+    with open(f"qtable-{int(time.time())}.pickle", "wb") as f:
+        pickle.dump(q_table1, f)
+'''
 
-with open(f"qtable-{int(time.time())}.pickle", "wb") as f:
-    pickle.dump(q_table1, f)
+if __name__ == "__main__":
+    # training
+    p0 = Agent()
+    p1 = Agent()
+    agents = [p0, p1]
+
+    dpg = DPG(agents)
+    print("training ...")
+    dpg.train(30000)

@@ -12,11 +12,11 @@ style.use("ggplot")
 SHOW_EVERY = 6000  # how often to play through env visually.
 
 
-action_space = ['0', '0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.7', '0.8', '0.9', '1']
+action_space = ['0', '0.025', '0.05', '0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.8', '1']
 
 
 class Agent:
-    def __init__(self, learning_rate=0.1, reward_decay=0.95, eps_greedy=0.9, eps_decay=0.9996):
+    def __init__(self, beta, sigma_square, learning_rate=0.1, reward_decay=0.95, eps_greedy=0.95, eps_decay=0.9995, mu=0):
         self.learning_rate = learning_rate
         # gamma, discount, reward decay
         self.gamma = reward_decay
@@ -25,6 +25,10 @@ class Agent:
         self.eps_decay = eps_decay
         # Q-table
         self.q_table = pd.DataFrame(0, index=[0], columns=action_space)
+
+        self.mu = mu
+        self.beta = beta
+        self.sigma_square = sigma_square
 
     def choose_action(self):
         if np.random.uniform() > self.eps_greedy:
@@ -49,15 +53,14 @@ class Agent:
 
 
 class DPG:
-    def __init__(self, agents):
-        self.mu = np.array([0, 0])
-        self.sigma_square_s = np.array([0.5, 0.3])
-        self.beta = np.array([5, -3])
-        self.sigma_square = 1
-        self.r_max = 15
+    def __init__(self, agents, sigma_square=1, r_max=15, pricing_mechanism='LOO'):
+
+        # self.beta = np.array([5, -3])
+        self.sigma_square = sigma_square
+        self.r_max = r_max
         self.agents = agents
         # shapley or LOO
-        self.pricing_mechanism = 'shapley'
+        self.pricing_mechanism = pricing_mechanism
 
         self.episode_rewards = []
         self.episode_rewards_sum = []
@@ -94,23 +97,23 @@ class DPG:
         y_tilde_s = np.zeros(n)
         i: int
         for i in range(n):
-            x_s[i] = np.random.normal(self.mu[i], self.sigma_square_s[i] ** .5)
+            x_s[i] = np.random.normal(self.agents[i].mu, self.agents[i].sigma_square ** .5)
 
             if actions[i] == '0':
-                s_square_s[i] = self.sigma_square_s[i]
-                x_tilde_s[i] = self.mu[i]
+                s_square_s[i] = self.agents[i].sigma_square
+                x_tilde_s[i] = self.agents[i].mu
             else:
                 s_square_s[i] = float(actions[i])
                 x_tilde_s[i] = x_s[i] + np.random.normal(0, s_square_s[i] ** .5)
 
-            y_tilde_s[i] = x_tilde_s[i] * self.beta[i]
+            y_tilde_s[i] = x_tilde_s[i] * self.agents[i].beta
             # y_tilde = sum(x_tilde_s * self.beta)
 
         epsilon = np.random.normal(0, self.sigma_square ** .5)
 
-        y = sum(x_s * self.beta) + epsilon
+        y = sum(x_s[i] * agents[i].beta for i in range(len(self.agents))) + epsilon
+        # y = sum(x_s * self.beta) + epsilon
         # Y = X1 * self.beta1 + X2 * self.beta2 + epsilon
-        # TODO: testing
         #y_tilde_s = np.array([2.395, 1.338])
         #y = 2.459
         #s_square_s = np.array([0.1, 0.1])
@@ -124,7 +127,7 @@ class DPG:
                 prices[i] = self.shapley(y_tilde_s, y, i, n)
             elif self.pricing_mechanism == 'LOO':
                 prices[i] = self.loo(y_tilde_s, y, i, n)
-            costs[i] = (self.sigma_square_s[i] / s_square_s[i]) + math.log10(s_square_s[i]) - (1 + math.log10(self.sigma_square_s[i]))
+            costs[i] = (self.agents[i].sigma_square / s_square_s[i]) + math.log10(s_square_s[i]) - (1 + math.log10(self.agents[i].sigma_square))
             # print(f"player {i}, costs: {costs[i]}")
             profits = prices - costs
             # print(f"player {i}, profit: {profits[i]}")
@@ -133,9 +136,11 @@ class DPG:
 
     def train(self, episodes=10000):
         # print(f"episodes: {episodes}")
+        rewards01 = []
         for episode in range(episodes):
             # print(f"episode: {episode}")
             actions = []
+            action = ""
             for agent in self.agents:
                 action = agent.choose_action()
                 actions.append(action)
@@ -145,6 +150,10 @@ class DPG:
             for j in range(len(agents)):
                 # print(f"player {j} action: {actions[j]} profit: {rewards[j]}")
                 self.agents[j].learn(actions[j], rewards[j])
+                if j == 1 and action == '0.1':
+                    rewards01.append(rewards[j])
+                    # print(f"{type(action)}, {action}")
+                # print(action)
 
             self.episode_rewards.append(rewards)
             episode_reward = sum(rewards)
@@ -153,12 +162,16 @@ class DPG:
             if episode % SHOW_EVERY == 0:
                 show = True
                 # print(f"Episode: #{episode}")
-                print(f"{SHOW_EVERY} episode mean: {np.mean(self.episode_rewards_sum[-SHOW_EVERY:])}")
+                print(f"Episode {episode}, {SHOW_EVERY} episode mean: {np.mean(self.episode_rewards_sum[-SHOW_EVERY:])}")
                 for j in range(len(agents)):
-                    print(f"player {j} epsilon: {agents[j].eps_greedy}")
-                    print(f"player {j} action: {actions[j]} profit: {rewards[j]}")
-                    print(f"player {j} q-table")
+                    print(f"player: {j} epsilon: {agents[j].eps_greedy}")
+                    print(f"player: {j} action: {actions[j]} profit: {rewards[j]}")
+                    print(f"player: {j} q-table")
                     print(agents[j].q_table)
+                if len(rewards01) != 0:
+                    print()
+                    print(f"--action 0.1 mean: {np.mean(rewards01)}")
+                    print()
             else:
                 show = False
         moving_avg_sum = np.convolve(self.episode_rewards_sum, np.ones((SHOW_EVERY,)) / SHOW_EVERY, mode='valid')
@@ -167,10 +180,10 @@ class DPG:
         rewards_per_agent = list(zip(*self.episode_rewards))
         for j in range(len(self.agents)):
             moving_avg = np.convolve(rewards_per_agent[j], np.ones((SHOW_EVERY,)) / SHOW_EVERY, mode='valid')
-            plt.plot([i for i in range(len(moving_avg))], moving_avg)
-        plt.plot([i for i in range(len(moving_avg_sum))], moving_avg_sum)
+            plt.plot([i for i in range(len(moving_avg))], moving_avg, label=j)
+        plt.plot([i for i in range(len(moving_avg_sum))], moving_avg_sum, label='sum')
 
-        plt.legend(['agent 1', 'agent 2', 'sum'], loc='upper left')
+        plt.legend(loc='upper left')
         plt.ylabel(f"Reward {SHOW_EVERY}ma")
         plt.xlabel("episode #")
         plt.show()
@@ -205,10 +218,12 @@ def save_q_table():
 
 if __name__ == "__main__":
     # training
-    p0 = Agent()
-    p1 = Agent()
+    p0 = Agent(beta=5, sigma_square=0.5, mu=0)
+    p1 = Agent(beta=-3, sigma_square=0.3, mu=0)
+    p2 = Agent(beta=4, sigma_square=0.4, mu=0)
+    p3 = Agent(beta=2, sigma_square=0.1, mu=0)
     agents = [p0, p1]
 
-    dpg = DPG(agents)
+    dpg = DPG(agents, pricing_mechanism='shapley')
     print("training ...")
-    dpg.train(30000)
+    dpg.train(18001)

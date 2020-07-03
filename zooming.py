@@ -10,7 +10,9 @@ import portion as P
 
 style.use("ggplot")
 
-SHOW_EVERY = 6000  # how often to play through env visually.
+SHOW_EVERY = 500  # how often to play through env visually.
+show = False
+test_pricing = False
 
 
 action_space = ['0', '0.025', '0.05', '0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.8', '1']
@@ -19,14 +21,6 @@ action_space = ['0', '0.025', '0.05', '0.1', '0.2', '0.3', '0.4', '0.5', '0.6', 
 class Agent:
     def __init__(self, beta, sigma_square, learning_rate=0.1, reward_decay=0.95, eps_greedy=0.95, eps_decay=0.9995,
                  mu=0, value_function='action_value_method'):
-        self.learning_rate = learning_rate
-        # gamma, discount, reward decay
-        self.gamma = reward_decay
-        # epsilon
-        self.eps_greedy = eps_greedy
-        self.eps_decay = eps_decay
-        # Q-table
-        self.q_table = pd.DataFrame(0, index=[0], columns=action_space)
         # value functions: action_value_method, q-learning, UCB
         self.value_function = value_function
 
@@ -34,30 +28,65 @@ class Agent:
         self.beta = beta
         self.sigma_square = sigma_square
 
-    def choose_action(self):
-        if np.random.uniform() > self.eps_greedy:
-            # only one observation/state
-            # exploitation
-            state_action = self.q_table.loc[0, :]
-            state_action = state_action.reindex(np.random.permutation(state_action.index))
-            action = state_action.idxmax()
-        else:
-            # exploration
-            action = np.random.choice(action_space)
+        self.active_arms = []
+        self.pulled_arms = []
+        self.avg_rewards = []
+
+    def choose_action(self, i_ph):
+        # Activation rule
+        not_covered = P.closed(lower=0, upper=1)
+        for i in range(len(self.active_arms)):
+            confidence_radius = self.confidence_radius(i_ph, i)
+            # confidence_radius = math.sqrt((8 * i_ph)/1 + self.pulled_arms[i])
+            confidence_interval = P.closed(self.active_arms[i] - confidence_radius, self.active_arms[i] + confidence_radius)
+            not_covered = not_covered - confidence_interval
+            if show:
+                print(f"arm: {i}, i_ph: {i_ph}, pulled_arms: {self.pulled_arms[i]}")
+                print(f"not_covered: {not_covered}, confidence_radius: {confidence_radius}")
+
+        if not_covered != P.empty():
+            rans = []
+            height = 0
+            heights = []
+            for i in not_covered:
+                rans.append(np.random.uniform(i.lower, i.upper))
+                height += i.upper - i.lower
+                heights.append(i.upper - i.lower)
+            ran_n = np.random.uniform(0, height)
+            j = 0
+            for i in range(len(heights)):
+                if j < ran_n < j + heights[i]:
+                    ran = rans[i]
+                j += heights[i]
+            if test_pricing:
+                ran = 0.1
+            self.active_arms.append(ran)
+            self.pulled_arms.append(0)
+            self.avg_rewards.append(0)
+
+        # Selection rule
+        max_index = float('-inf')
+        max_index_arm = None
+        for i in range(len(self.active_arms)):
+            confidence_radius = self.confidence_radius(i_ph, i)
+            index = self.avg_rewards[i] + 2 * confidence_radius
+            if index > max_index:
+                max_index = index
+                max_index_arm = i
+        action = self.active_arms[max_index_arm]
         return action
 
-    def learn(self, action, reward, episode):
-        # update q_table
-        current_q = self.q_table.loc[0, action]
-        max_future_q = self.q_table.loc[0, :].max()
-        new_q = 0
-        if self.value_function == 'action_value_method':
-            new_q = current_q + (1/(episode + 1)) * (reward - current_q)
-        elif self.value_function == 'q-learning':
-            new_q = current_q + self.learning_rate * ((reward + self.gamma * max_future_q) - current_q)
-        self.q_table.loc[0, action] = new_q
+    def learn(self, action, reward):
+        # TODO: testing
+        # reward = (reward + 200)/(270 + 200)
+        if show:
+            print(f"reward: {reward}")
+        arm = self.active_arms.index(action)
+        self.avg_rewards[arm] = (self.pulled_arms[arm] * self.avg_rewards[arm] + reward) / (self.pulled_arms[arm] + 1)
+        self.pulled_arms[arm] += 1
 
-        self.eps_greedy *= self.eps_decay
+    def confidence_radius(self, i_ph, i):
+        return math.sqrt((8 * i_ph)/(1 + self.pulled_arms[i]))
 
 
 class DPG:
@@ -106,18 +135,26 @@ class DPG:
         i: int
         for i in range(n):
             x_s[i] = np.random.normal(self.agents[i].mu, self.agents[i].sigma_square ** .5)
+            if test_pricing:
+                x_s[0] = 0.055664941
+                x_s[1] = 0.435856935
 
-            if actions[i] == '0':
+            if float(actions[i]) == 0:
                 s_square_s[i] = self.agents[i].sigma_square
                 x_tilde_s[i] = self.agents[i].mu
             else:
                 s_square_s[i] = float(actions[i])
                 x_tilde_s[i] = x_s[i] + np.random.normal(0, s_square_s[i] ** .5)
 
+            if test_pricing:
+                x_tilde_s[0] = 0.463488408
+                x_tilde_s[1] = 0.282960863
             y_tilde_s[i] = x_tilde_s[i] * self.agents[i].beta
             # y_tilde = sum(x_tilde_s * self.beta)
 
         epsilon = np.random.normal(0, self.sigma_square ** .5)
+        if test_pricing:
+            epsilon = 0.047803865
 
         y = sum(x_s[i] * agents[i].beta for i in range(len(self.agents))) + epsilon
         # y = sum(x_s * self.beta) + epsilon
@@ -135,7 +172,12 @@ class DPG:
                 prices[i] = self.shapley(y_tilde_s, y, i, n)
             elif self.pricing_mechanism == 'LOO':
                 prices[i] = self.loo(y_tilde_s, y, i, n)
-            costs[i] = (self.agents[i].sigma_square / s_square_s[i]) + math.log10(s_square_s[i]) - (1 + math.log10(self.agents[i].sigma_square))
+
+            if 0 < s_square_s[i] < self.agents[i].sigma_square:
+                costs[i] = (self.agents[i].sigma_square / s_square_s[i]) + math.log10(s_square_s[i]) - (1 + math.log10(self.agents[i].sigma_square))
+            elif self.agents[i].sigma_square < s_square_s[i]:
+                costs[i] = 0
+
             # print(f"player {i}, costs: {costs[i]}")
             profits = prices - costs
             # print(f"player {i}, profit: {profits[i]}")
@@ -146,98 +188,37 @@ class DPG:
         i_ph = 0
         while i_ph < rounds:
             i_ph = i_ph + 1
-            active_arms = []
-            pulled_arms = []
-            avg_rewards = []
 
             for t in range(1, 2 ** i_ph + 1):
                 actions = []
                 for agent in self.agents:
-                    action = agent.choose_action()
+                    action = agent.choose_action(i_ph)
                     actions.append(action)
 
-                # Activation rule
-                not_covered = P.closed(lower=0, upper= 1)
-                for i in range(len(active_arms)):
-                    confidence_radius = self.confidence_radius(i_ph, pulled_arms, i)
-                    # confidence_radius = math.sqrt((8 * i_ph)/1 + pulled_arms[i])
-                    confidence_interval = P.closed(active_arms[i] - confidence_radius, active_arms[i] + confidence_radius)
-                    not_covered = not_covered - confidence_interval
+                rewards = self.step(actions)
 
-                if not_covered != ():
-                    rans = []
-                    height = 0
-                    heights = []
-                    for i in list(not_covered):
-                        rans.append(np.random.uniform(i.lower, i.upper))
-                        height += i.upper - i.lower
-                        heights.append(i.upper - i.lower)
-                    ran_n = np.random.uniform(0, height)
-                    j = 0
-                    for i in range(len(heights)):
-                        if j < ran_n < j + heights[i]:
-                            ran = rans[i]
-                        j += heights[i]
-                    active_arms.append(ran)
-                    pulled_arms.append(0)
-                    avg_rewards.append(0)
-
-                # Selection rule
-                max_index = 0
-                max_index_arm = None
-                for i in range(len(active_arms)):
-                    index = avg_rewards[i] + 2 * self.confidence_radius(i_ph, pulled_arms, i)
-                    if index > max_index:
-                        max_index = index
-                        max_index_arm = i
-                action = active_arms[max_index_arm]
-                rewards = self.step(active_arms[max_index_arm])
-
-
-
-    def confidence_radius(self, i_ph, pulled_arms, i):
-        return math.sqrt((8 * i_ph)/1 + pulled_arms[i])
-
-    def train(self, episodes=10000):
-        # print(f"episodes: {episodes}")
-        rewards01 = []
-        for episode in range(episodes):
-            # print(f"episode: {episode}")
-            actions = []
-            action = ""
-            for agent in self.agents:
-                action = agent.choose_action()
-                actions.append(action)
-
-            rewards = self.step(actions)
-
-            for j in range(len(agents)):
-                # print(f"player {j} action: {actions[j]} profit: {rewards[j]}")
-                self.agents[j].learn(actions[j], rewards[j], episode)
-                if j == 1 and action == '0.1':
-                    rewards01.append(rewards[j])
-                    # print(f"{type(action)}, {action}")
-                # print(action)
-
-            self.episode_rewards.append(rewards)
-            episode_reward = sum(rewards)
-            self.episode_rewards_sum.append(episode_reward)
-
-            if episode % SHOW_EVERY == 0:
-                show = True
-                # print(f"Episode: #{episode}")
-                print(f"Episode {episode}, {SHOW_EVERY} episode mean: {np.mean(self.episode_rewards_sum[-SHOW_EVERY:])}")
                 for j in range(len(agents)):
-                    print(f"player: {j} epsilon: {agents[j].eps_greedy}")
-                    print(f"player: {j} action: {actions[j]} profit: {rewards[j]}")
-                    print(f"player: {j} q-table")
-                    print(agents[j].q_table)
-                if len(rewards01) != 0:
+                    # print(f"player {j} action: {actions[j]} profit: {rewards[j]}")
+                    self.agents[j].learn(actions[j], rewards[j])
+                    # print(f"{type(action)}, {action}")
+                    # print(action)
+                self.episode_rewards.append(rewards)
+                episode_reward = sum(rewards)
+                self.episode_rewards_sum.append(episode_reward)
+
+                if t % SHOW_EVERY == 0:
+                    global show
+                    show = True
+                    # print(f"Episode: #{episode}")
                     print()
-                    print(f"--action 0.1 mean: {np.mean(rewards01)}")
-                    print()
-            else:
-                show = False
+                    print(f"Episode {t}, {SHOW_EVERY} episode mean: {np.mean(self.episode_rewards_sum[-SHOW_EVERY:])}")
+                    for j in range(len(agents)):
+                        print(f"player: {j} action: {actions[j]} profit: {rewards[j]}")
+                        print(f"active_arms: {agents[j].active_arms}")
+                        print(f"pulled_arms: {agents[j].pulled_arms}")
+                        print(f"avg_rewards: {agents[j].avg_rewards}")
+                else:
+                    show = False
         moving_avg_sum = np.convolve(self.episode_rewards_sum, np.ones((SHOW_EVERY,)) / SHOW_EVERY, mode='valid')
 
         # moving_avg = []
@@ -252,39 +233,11 @@ class DPG:
         plt.xlabel("episode #")
         plt.show()
 
-'''
-if start_q_table1 is None:
-    q_table1 = {}
-    for i in range(SIZE):
-        q_table1[i] = [np.random.uniform(-15, 15) for i in range(n_actions)]
-else:
-    with open(start_q_table1, "rb") as f:
-        q_table1 = pickle.load(f)
-
-if start_q_table2 is None:
-    q_table2 = {}
-    for i in range(SIZE):
-        q_table2[i] = [np.random.uniform(-15, 15) for i in range(n_actions)]
-else:
-    with open(start_q_table2, "rb") as f:
-        q_table2 = pickle.load(f)
-'''
-
-# plt.plot([i for i in range(len(episode_rewards))], episode_rewards)
-# plt.ylabel(f"Reward")
-# plt.xlabel(f"episode #")
-# plt.show()
-'''
-def save_q_table():
-    with open(f"qtable-{int(time.time())}.pickle", "wb") as f:
-        pickle.dump(q_table1, f)
-'''
 
 class Arm:
     def __init__(self, value):
         value = value
         pulled = 0
-
 
 
 if __name__ == "__main__":
@@ -297,4 +250,4 @@ if __name__ == "__main__":
 
     dpg = DPG(agents, pricing_mechanism='shapley')
     print("training ...")
-    dpg.train(120001)
+    dpg.zoom(12)

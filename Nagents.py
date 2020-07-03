@@ -16,7 +16,8 @@ action_space = ['0', '0.025', '0.05', '0.1', '0.2', '0.3', '0.4', '0.5', '0.6', 
 
 
 class Agent:
-    def __init__(self, beta, sigma_square, learning_rate=0.1, reward_decay=0.95, eps_greedy=0.95, eps_decay=0.9995, mu=0):
+    def __init__(self, beta, sigma_square, learning_rate=0.1, reward_decay=0.95, eps_greedy=0.95, eps_decay=0.9995,
+                 mu=0, value_function='action_value_method'):
         self.learning_rate = learning_rate
         # gamma, discount, reward decay
         self.gamma = reward_decay
@@ -25,6 +26,8 @@ class Agent:
         self.eps_decay = eps_decay
         # Q-table
         self.q_table = pd.DataFrame(0, index=[0], columns=action_space)
+        # value functions: action_value_method, q-learning, UCB
+        self.value_function = value_function
 
         self.mu = mu
         self.beta = beta
@@ -42,11 +45,15 @@ class Agent:
             action = np.random.choice(action_space)
         return action
 
-    def learn(self, action, reward):
+    def learn(self, action, reward, episode):
         # update q_table
         current_q = self.q_table.loc[0, action]
         max_future_q = self.q_table.loc[0, :].max()
-        new_q = current_q + self.learning_rate * ((reward + self.gamma * max_future_q) - current_q)
+        new_q = 0
+        if self.value_function == 'action_value_method':
+            new_q = current_q + (1/(episode + 1)) * (reward - current_q)
+        elif self.value_function == 'q-learning':
+            new_q = current_q + self.learning_rate * ((reward + self.gamma * max_future_q) - current_q)
         self.q_table.loc[0, action] = new_q
 
         self.eps_greedy *= self.eps_decay
@@ -127,12 +134,16 @@ class DPG:
                 prices[i] = self.shapley(y_tilde_s, y, i, n)
             elif self.pricing_mechanism == 'LOO':
                 prices[i] = self.loo(y_tilde_s, y, i, n)
-            costs[i] = (self.agents[i].sigma_square / s_square_s[i]) + math.log10(s_square_s[i]) - (1 + math.log10(self.agents[i].sigma_square))
+
+            if 0 < s_square_s[i] < self.agents[i].sigma_square:
+                costs[i] = (self.agents[i].sigma_square / s_square_s[i]) + math.log10(s_square_s[i]) - (
+                            1 + math.log10(self.agents[i].sigma_square))
+            elif self.agents[i].sigma_square < s_square_s[i]:
+                costs[i] = 0
             # print(f"player {i}, costs: {costs[i]}")
             profits = prices - costs
             # print(f"player {i}, profit: {profits[i]}")
         return profits
-        # TODO: is this correct?
 
     def train(self, episodes=10000):
         # print(f"episodes: {episodes}")
@@ -149,7 +160,7 @@ class DPG:
 
             for j in range(len(agents)):
                 # print(f"player {j} action: {actions[j]} profit: {rewards[j]}")
-                self.agents[j].learn(actions[j], rewards[j])
+                self.agents[j].learn(actions[j], rewards[j], episode)
                 if j == 1 and action == '0.1':
                     rewards01.append(rewards[j])
                     # print(f"{type(action)}, {action}")

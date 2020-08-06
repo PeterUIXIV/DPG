@@ -9,8 +9,8 @@ import pandas as pd
 import portion as P
 import statistics
 import random
-from anytree import Node, RenderTree, PreOrderIter
-
+# from anytree import Node, RenderTree, PreOrderIter
+import Node
 style.use("ggplot")
 
 # SHOW_EVERY = 1000  # how often to play through env visually.
@@ -38,85 +38,105 @@ class Agent:
         self.node_counter = {
             (0, 1): 0
         }
-        self.mean_values = {}
         self.actions = []
-        self.u_values = {}
+
+        root = Node.Node(lower, sigma_square, 0)
+        root.active = True
+        root.left = Node.Node(root.lower, (root.lower + root.higher)/2, float("inf"))
+        root.right = Node.Node((root.lower + root.higher)/2, root.higher, float("inf"))
+        self.root = root
+        self.highest_b_leaf = None
 
         self.b_values = {(1, 2): float("inf"), (1, 1): float("inf")}
         self.tree = [(0, 1)]
         self.path = []
-        self.H = 0
-        self.I = 0
+        # self.active_arms = []
+        # self.pulled_arms = []
+        # self.avg_rewards = []
+        # self.max_profit = 0
+        # self.min_profit = 0
+        # self.high_count = 0
+        # self.low_count = 0
 
-        self.active_arms = []
-        self.pulled_arms = []
-        self.avg_rewards = []
-        self.max_profit = 0
-        self.min_profit = 0
-        self.high_count = 0
-        self.low_count = 0
-
-        self.current_arm = 0
+        # self.current_arm = 0
 
     def choose_action(self):
-
-        (h, i) = (0, 1)
-        self.path.append((h, i))
-
-        while (h, i) in self.tree:
-            if self.b_values[(h + 1, 2 * i - 1)] > self.b_values[(h + 1, 2 * i - 1)]:
-                (h, i) = (h + 1, 2 * i - 1)
-            elif self.b_values[(h + 1, 2 * i - 1)] < self.b_values[h + 1, 2 * i]:
-                (h, i) = (h + 1, 2 * i)
+        node = self.root
+        while node.left or node.right:
+            if node.left.b > node.right.b:
+                node = node.left
+            elif node.left.b < node.right.b:
+                node = node.right
             else:
-                (h, i) = (h + 1, 2 * i - random.randint(0, 1))
-            self.path.append((h, i))
+                node = random.choice([node.left, node.right])
+
+        self.highest_b_leaf = node
         # choose arm X in P_H,I and play it
-        self.H = h
-        self.I = i
-        self.node_counter[h, i] = 0
+
         # Calculating interval from binary tree
-        interval_norm_lower = (2 ** h) * (1 - 1 / i)
-        interval_norm_upper = i / (2 ** h)
-        interval_lower = interval_norm_lower * (self.sigma_square - lower) + lower
-        interval_upper = interval_norm_upper * (self.sigma_square - lower) + lower
-        action = np.random.uniform(interval_lower, interval_upper)
+
+        action = np.random.uniform(node.lower, node.higher)
 
         return action
 
     def learn(self, reward, n, v1, rho):
-        (H, I) = self.H, self.I
-        self.tree.append((H, I))
-        for (h, i) in self.path:
-            self.node_counter[(h, i)] = self.node_counter[(h, i)] + 1
-            if (h, i) not in self.mean_values:
-                self.mean_values[(h, i)] = reward
-            else:
-                self.mean_values[(h, i)] = (1 - 1 / self.node_counter[(h, i)]) * self.mean_values[(h, i)] + reward / \
-                                       self.node_counter[(h, i)]
+        # create children
+        highest_b_leaf = self.highest_b_leaf
+        highest_b_leaf.active = True
 
-        for (h, i) in self.tree:
-            self.u_values[(h, i)] = self.mean_values[(h, i)] + math.sqrt(
-                (2 * math.log(n)) / self.node_counter[(h, i)]) + v1 * math.pow(rho, h)
-        self.b_values[(H + 1, 2 * I - 1)] = float("inf")
-        self.b_values[(H + 1, 2 * I)] = float("inf")
-        tree_c = self.tree
-        while tree_c != [(0, 1)]:
-            (h, i) = get_leaf(tree_c)
-            self.b_values[(h, i)] = min(self.u_values[(h, i)], max(self.b_values[(h + 1, i * 2 - 1)],
-                                                                   self.b_values[(h + 1, i * 2)]))
-            tree_c.remove((h, i))
+        for node in highest_b_leaf.path(self.root):
+            node.count += 1
+            if node.mean is None:
+                node.mean = reward
+            else:
+                node.mean = (1 - 1 / node.count) * node.mean + reward / node.count
+
+        for node in self.root.pre_order_traversal():
+            node.u = node.mean + math.sqrt((2 * math.log(n)) / node.count) + \
+                     v1 * math.pow(rho, len(node.path(self.root)) - 1)
+
+        highest_b_leaf.left = Node.Node(highest_b_leaf.lower, (highest_b_leaf.lower + highest_b_leaf.higher)/2, float("inf"))
+        highest_b_leaf.right = Node.Node((highest_b_leaf.lower + highest_b_leaf.higher)/2, highest_b_leaf.higher, float("inf"))
+        # self.b_values[(H + 1, 2 * I - 1)] = float("inf")
+        # self.b_values[(H + 1, 2 * I)] = float("inf")
+        tree_copy = self.root.duplicate_tree()
+        while True:
+            if tree_copy.left:
+                if not tree_copy.left.active:
+                    break
+            elif tree_copy.right:
+                if not tree_copy.right.active:
+                    break
+            else:
+                break
+            parent, leaf = tree_copy.first_leaf_and_parent()
+            node = self.root.find(leaf)
+            node.b = min(node.u, max(node.left.b, node.right.b))
+            parent.remove(leaf)
+
+
 '''
 def get_leaf_with_height(tree, h):
     height = h
     if
-'''
+
+
+
+def search_highest_b_leaf(self, root):
+    while root.left or root.right:
+        if root.left.b > root.right.b:
+            root = root.left
+        elif root.left.b < root.right.b:
+            root = root.right
+        else:
+            root = random.choice([root.left, root.right])
+    return root
 
 def get_leaf(tree):
     for node in tree:
         if (node[0] + 1, node[1] * 2 - 1) not in tree and (node[0] + 1, node[1] * 2) not in tree:
             return node
-
+'''
 
 class DPG:
 
@@ -246,18 +266,21 @@ class DPG:
                 # avg_rewards_per_agent = []
                 # for list_of_rewards in rewards_per_agent:
                 #     avg_rewards_per_agent.append(statistics.mean(list_of_rewards))
+                print()
                 print(f"{SHOW_EVERY} episode mean: {np.mean(self.episode_rewards_sum[-SHOW_EVERY:])}")
                 for j in range(len(agents)):
+                    print()
                     print(f"player: {j} action: {actions[j]} profit: {rewards[j]}")
-                    print(f"max_profit: {agents[j].max_profit}, min_profit: {agents[j].min_profit}")
-                    print(f"node (1, 1)")
-                    print(f"U-value: {agents[j].u_values[1, 1]}, B-value: {agents[j].b_values[1, 1]}, mean-rewards: {agents[j].mean_values[1, 1]}")
-                    print(f"node (1, 2)")
-                    print(f"U-value: {agents[j].u_values[1, 2]}, B-value: {agents[j].b_values[1, 2]}, mean-rewards: {agents[j].mean_values[1, 2]}")
+                    agents[j].root.print_tree_depth(3)
+                    # print(f"max_profit: {agents[j].max_profit}, min_profit: {agents[j].min_profit}")
+                    # print(f"node (1, 1)")
+                    # print(f"U-value: {agents[j].root.left.u}, B-value: {agents[j].root.left.b}, mean-rewards: {agents[j].root.left.mean}")
+                    # print(f"node (1, 2)")
+                    # print(f"U-value: {agents[j].root.right.u}, B-value: {agents[j].root.right.b}, mean-rewards: {agents[j].root.right.mean}")
 
-                    for arm in agents[j].active_arms:
-                        print(f"arm: {arm.index}, value: {arm.value}, pulled: {arm.pulled}, "
-                              f"avg_learning_reward: {arm.avg_learning_reward}, avg_reward: {arm.avg_reward}")
+                    #for arm in agents[j].active_arms:
+                    #    print(f"arm: {arm.index}, value: {arm.value}, pulled: {arm.pulled}, "
+                    #          f"avg_learning_reward: {arm.avg_learning_reward}, avg_reward: {arm.avg_reward}")
 
                         # print(f"avg_real_rewards: {avg_rewards_per_agent[j]}")
         moving_avg_sum = np.convolve(self.episode_rewards_sum, np.ones((SHOW_EVERY,)) / SHOW_EVERY, mode='valid')
@@ -279,7 +302,7 @@ if __name__ == "__main__":
     debug = False
     debug_pricing = False
 
-    rounds = 10000
+    rounds = 1000
     SHOW_EVERY = int(rounds / 10)
 
     show = False
@@ -292,7 +315,7 @@ if __name__ == "__main__":
 
     # hyperparameter
     rho = 0.5
-    v1 = 2
+    v1 = 10
 
     dpg = DPG(agents, pricing_mechanism='LOO')
     print("training ...")

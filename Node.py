@@ -44,11 +44,12 @@ class Node:
     def path(self, target):
         current = self
         path = [current]
+
         while current != target:
-            if target.higher <= current.left.higher:
+            if target.i <= current.left.i * 2 ** (target.h - current.left.h):
                 current = current.left
                 path.append(current)
-            elif target.lower >= current.right.lower:
+            elif target.i >= current.right.i * 2 ** (target.h - current.right.h) - (2 ** (target.h - current.right.h) - 1):
                 current = current.right
                 path.append(current)
             else:
@@ -127,21 +128,19 @@ class Node:
     def find(self, target):
         current = self
         while current.h != target.h or current.i != target.i:
-            if current.left and target.i <= current.left.i * math.pow(2, target.h - current.left.h):
+            if current.left and target.i <= current.left.i * 2 ** (target.h - current.left.h):
                 current = current.left
-            elif current.right and target.i > (current.right.i - 1) * math.pow(2, target.h - current.right.h):
+            elif current.right and target.i >= (current.right.i - 1) * 2 ** (target.h - current.right.h) + 1:
                 current = current.right
             else:
+                print(f"current h:{current.h}, i:{current.i}")
+                if current.left:
+                    print(f"current.left h: {current.left.h}, i: {current.left.i} {current.left.active}")
+                if current.right:
+                    print(f"current.right h: {current.right.h}, i: {current.right.i} {current.right.active}")
+
+                print(f"target  h:{target.h}, i:{target.i}")
                 raise Exception("Target not found")
-        '''
-        while current.lower != target.lower or current.higher != target.higher:
-            if current.left and current.left.higher >= target.higher:
-                current = current.left
-            elif current.right and current.right.lower <= target.lower:
-                current = current.right
-            else:
-                raise Exception('Target not found')
-        '''
         return current
 
 

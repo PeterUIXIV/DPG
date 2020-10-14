@@ -46,14 +46,19 @@ class Node:
         path = [current]
 
         while current != target:
-            if target.i <= current.left.i * 2 ** (target.h - current.left.h):
-                current = current.left
-                path.append(current)
-            elif target.i >= current.right.i * 2 ** (target.h - current.right.h) - (2 ** (target.h - current.right.h) - 1):
-                current = current.right
-                path.append(current)
-            else:
-                raise Exception("Target not found")
+            try:
+                if target.i <= current.left.i * 2 ** (target.h - current.left.h):
+                    current = current.left
+                    path.append(current)
+                elif target.i >= current.right.i * 2 ** (target.h - current.right.h) - (2 ** (target.h - current.right.h) - 1):
+                    current = current.right
+                    path.append(current)
+                else:
+                    raise Exception("Target not found")
+            except AttributeError as e:
+                print(f"current ({current.lower}, {current.higher}) h: {current.h}, i: {current.i}")
+                print(f"target ({target.lower}, {target.higher}) h: {target.h}, i: {target.i}")
+                print(e)
         return path
 
     def duplicate_tree(self):
@@ -143,6 +148,34 @@ class Node:
                 raise Exception("Target not found")
         return current
 
+    def find_and_remove(self, target):
+        current = self
+        while current.h != target.h or current.i != target.i:
+            if current.left and target.i <= current.left.i * 2 ** (target.h - current.left.h):
+                current = current.left
+            elif current.right and target.i >= (current.right.i - 1) * 2 ** (target.h - current.right.h) + 1:
+                current = current.right
+            else:
+                print(f"current h:{current.h}, i:{current.i}")
+                if current.left:
+                    print(f"current.left h: {current.left.h}, i: {current.left.i} {current.left.active}")
+                if current.right:
+                    print(f"current.right h: {current.right.h}, i: {current.right.i} {current.right.active}")
+
+                print(f"target  h:{target.h}, i:{target.i}")
+                raise Exception("Target not found")
+            if current.left == target:
+                current.left.left = None
+                current.left.right = None
+                current.left.active = False
+                current.left.b = float("inf")
+                return
+            if current.right == target:
+                current.right.left = None
+                current.right.right = None
+                current.right.active = False
+                current.right.b = float("inf")
+                return
 
 def subtree_height(node):
     if node is None:

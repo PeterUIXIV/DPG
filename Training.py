@@ -3,28 +3,40 @@ import numpy as np
 import load_dataset
 import Agents
 import matplotlib.pyplot as plt
+import math
 from py_expression_eval import Parser
 
 # training
-rounds = 1000
+rounds = 10000
 
 # data set parameter
 DATA_PATH = r'D:\workspaces\datasets\USCensus1990\USCensus1990.data.txt'
 predictor = ['iMobillim', 'iWork89']
 target = 'iMilitary'
-with_data_set = True
+with_data_set = False
 
 # agent hyperparameter
-rho = 0.998
-v1 = 1.5
-# agent1 = Agents.HierarchicalOptimisticOptimization([0, 0.5], v1=v1, rho=rho)
-# agent2 = Agents.HierarchicalOptimisticOptimization([0, 0.3], v1=v1, rho=rho)
-agent1 = Agents.Zooming([0.01, 0.5])
-agent2 = Agents.Zooming([0.01, 0.3])
+# rho = 0.998
+# v1 = 1.5
+rho = 0.5
+v1 = 1
+# agent1 = Agents.HierarchicalOptimisticOptimization([0, 1], v1=v1, rho=rho)
+# agent2 = Agents.HierarchicalOptimisticOptimization([0, 1], v1=v1, rho=rho)
+# agent1 = Agents.Zooming([0, 1])
+# agent2 = Agents.Zooming([0, 1])
+# agent1 = Agents.Random([0, 1])
+# agent2 = Agents.Random([0, 1])
+agent1 = Agents.EpsilonGreedy([0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5],
+                              eps_greedy=0.999, eps_decay=0.9996)
+agent2 = Agents.EpsilonGreedy([0, 0.03, 0.06, 0.09, 0.12, 0.15, 0.18, 0.21, 0.24, 0.27, 0.3],
+                              eps_greedy=0.999, eps_decay=0.9996)
 
 # DPG parameter
+logistic_growth = 0.4
 betas = [5, -3]
-pricing_mechanism = 'loo'
+sigmas_j_square = [.5, .3]
+# 'loo' or 'shapley'
+pricing_mechanism = 'shapley'
 r_max = 15
 sigma_square = 1
 
@@ -33,11 +45,9 @@ def cost_function(sigma_square, s_square):
     return (sigma_square / s_square) + math.log10(s_square) - (1 + math.log10(sigma_square))
 '''
 parser = Parser()
-# cost_function = '(sigma_square / s_square) + math.log10(s_square) - (1 + math.log10(sigma_square))'
-cost_function = '(sigma_square / s_square) + log(s_square, 10) - (1 + log(sigma_square, 10))'
-cost_function = parser.parse(cost_function)
-data_provider = [DPG.DataProvider(mu=0, sigma_square=0.5, cost_function=cost_function, agent=agent1),
-                 DPG.DataProvider(mu=0, sigma_square=0.3, cost_function=cost_function, agent=agent2)]
+alt_cost_function = "sigma_square * exp(-5 * (s_square - sigma_square)) -sigma_square"
+# cost_function = '(sigma_square / s_square) + log(s_square, 10) - (1 + log(sigma_square, 10))'
+cost_function = parser.parse(alt_cost_function)
 
 
 if __name__ == "__main__":
@@ -46,18 +56,23 @@ if __name__ == "__main__":
     if with_data_set:
         data_set = load_dataset.DataSet(path=DATA_PATH, predictor=predictor, target=target)
         betas = data_set.coef
+        sigmas_j_square = data_set.var
     else:
         data_set = None
 
+    data_provider = [DPG.DataProvider(mu=0, sigma_square=sigmas_j_square[0], cost_function=cost_function, agent=agent1),
+                     DPG.DataProvider(mu=0, sigma_square=sigmas_j_square[1], cost_function=cost_function, agent=agent2)]
+
+    print(betas)
     dpg = DPG.DataProvisionGame(data_provider,
                                 DPG.AnalyticsServiceProvider(np.array(betas)),
                                 DPG.DataConsumer(pricing_mechanism=pricing_mechanism, r_max=r_max), data_set=data_set,
-                                sigma_square=sigma_square)
+                                sigma_square=sigma_square, logistic_growth=logistic_growth)
 
     for episode in range(1, rounds + 1):
         dpg.step(episode)
         if episode % SHOW_EVERY == 0:
-            print(f"episode {episode}")
+            print(f"episode {episode} of {rounds}")
             for i in range(len(dpg.data_provider_list)):
                 print(f"Agent {i+1}")
                 print(f"Avg rewards: {sum(dpg.data_provider_list[i].rewards)/len(dpg.data_provider_list[i].rewards)}")

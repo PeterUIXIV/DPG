@@ -11,6 +11,9 @@ class DataSet:
         regr = linear_model.LinearRegression()
         regr.fit(self.X, self.Y)
         self.coef = regr.coef_
+        self.var = self.df.var()[predictor]
+        print(f"coef: {self.coef}")
+        print(f"var: {self.var}")
         print("data set loaded")
 
     def get_predictor(self, i):

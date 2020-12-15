@@ -6,6 +6,11 @@ from sklearn import linear_model
 DATA_PATH = r'D:\workspaces\datasets\USCensus1990\USCensus1990.data.txt'
 df = pd.read_csv(DATA_PATH)
 print("df read")
+mean = df.mean()
+std_dev = df.std()
+var = df.var()
+print(f"mean: {mean}, std_dev = {std_dev}, var: {var}")
+
 corr = df.corr()
 print("corr matrix calculated")
 '''
@@ -46,7 +51,7 @@ X = df[['iMobillim', 'iWork89']]
 Y = df['iMilitary']
 regr = linear_model.LinearRegression()
 regr.fit(X, Y)
-regr.score(X, Y)
-regr.intercept_
-regr.coef_
+print(regr.score(X, Y))
+print(regr.intercept_)
+print(regr.coef_)
 plt.scatter(df['iMobillim'], df['iMilitary'], color='red')

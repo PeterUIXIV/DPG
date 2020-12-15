@@ -50,6 +50,7 @@ class HierarchicalOptimisticOptimization:
         self.row_list.append({'node': highest_b_leaf, 'value': reward})
 
         # look for outliers
+        '''
         if n >= 100:
             if n == 100 or math.log(n, 2) % 2 == 0:
                 df = pd.DataFrame(self.row_list, columns=['node', 'value'])
@@ -63,11 +64,11 @@ class HierarchicalOptimisticOptimization:
                 self.below_limit += 1
                 # print(f"Skipped ({highest_b_leaf.lower}, {highest_b_leaf.higher}), {reward}")
                 reward = self.lower_limit
-
+        '''
         # extend the tree
         highest_b_leaf.active = True
 
-        reward = reward / 15
+        # reward = reward / 15
 
         # Update the statistics node.count and node.mean
         for node in self.root.path(highest_b_leaf):
@@ -102,6 +103,7 @@ class HierarchicalOptimisticOptimization:
             parent.remove(leaf)
 
         # remove outliers
+        '''
         if n == 100:
             df = pd.DataFrame(self.row_list, columns=['node', 'value'])
             q_1, q_3 = df.value.quantile([0.25, 0.75])
@@ -116,48 +118,64 @@ class HierarchicalOptimisticOptimization:
                         else:
                             node.mean = ((node.mean * node.count) - row['value']) / (node.count - 1)
                             node.count -= 1
+        '''
 
     def show_learning(self):
         self.root.print_tree_depth(4)
 
 
 class Arm:
-    def __init__(self, index, value, norm_value):
+    def __init__(self, index, value):
         self.index = index
         self.value = value
-        self.norm_value = norm_value
         self.pulled = 0
-        self.avg_learning_reward = 0
+        # self.avg_learning_reward = 0
         self.avg_reward = 0
+        self.confidence_radius = 1
 
 
 class Zooming:
     def __init__(self, action_space):
         # value functions: action_value_method, q-learning, UCB
         # TODO: each DP saves his rewards and does not consider highest and lowest 1% of rewards
-        self.action_space = action_space
+        # self.action_space = action_space
 
+        self.action_space = P.closed(lower=action_space[0], upper=action_space[1])
         self.active_arms = []
         self.pulled_arms = []
         self.avg_rewards = []
-        self.max_profit = 0
-        self.min_profit = 0
-        self.high_count = 0
-        self.low_count = 0
+        # self.max_profit = 0
+        # self.min_profit = 0
+        # self.high_count = 0
+        # self.low_count = 0
+
+        self.i_ph = 1
 
         self.current_arm = None
 
     def choose_action(self, episode):
-        i_ph = int(math.log2(episode)) + 1
+        if episode == 1:
+            i_ph = 1
+        else:
+            i_ph = math.ceil(math.log2(episode))
+
+        if self.i_ph != i_ph:
+            self.active_arms = []
+            self.pulled_arms = []
+            self.avg_rewards = []
+            self.i_ph = i_ph
+
+
         # Activation rule
-        not_covered = P.closed(lower=0, upper=1)
+        not_covered = self.action_space
         # not_covered = P.closed(lower=0.01, upper=self.sigma_square)
         # scale = not_covered.upper - not_covered.lower
         for arm in self.active_arms:
             # confidence_radius = scale * self.confidence_radius(i_ph, i)
-            confidence_radius = calc_confidence_radius(i_ph, arm)
-            confidence_interval = P.closed(arm.norm_value - confidence_radius,
-                                           arm.norm_value + confidence_radius)
+            # confidence_radius = calc_confidence_radius(i_ph, arm)
+            arm.confidence_radius = math.sqrt((8 * i_ph)/(1 + arm.pulled))
+            confidence_interval = P.closed(arm.value - arm.confidence_radius,
+                                           arm.value + arm.confidence_radius)
             not_covered = not_covered - confidence_interval
 
         if not_covered != P.empty():
@@ -175,7 +193,7 @@ class Zooming:
                 if j < ran_n < j + heights[i]:
                     ran = rans[i]
                 j += heights[i]
-            new_arm = Arm(len(self.active_arms), ran * (self.action_space[1] - self.action_space[0]) + self.action_space[0], ran)
+            new_arm = Arm(len(self.active_arms), ran)
             self.active_arms.append(new_arm)
             # self.pulled_arms.append(0)
             # self.avg_rewards.append(0)
@@ -184,22 +202,24 @@ class Zooming:
         max_index = float('-inf')
         max_index_arm = None
         for arm in self.active_arms:
-            confidence_radius = calc_confidence_radius(i_ph, arm)
-            index = arm.avg_learning_reward + 2 * confidence_radius
+            confidence_radius = arm.confidence_radius
+            # index = arm.avg_learning_reward + 2 * confidence_radius
+            index = arm.avg_reward + 2 * confidence_radius
             if index > max_index:
                 max_index = index
                 max_index_arm = arm
-        action = max_index_arm.value
+
         self.current_arm = max_index_arm
         # self.current_action = action
         # action = action * (self.sigma_square - lower) + lower
-        return action
+        return max_index_arm.value
 
     def learn(self, reward, i):
         arm = self.current_arm
         arm.avg_reward = (arm.pulled * arm.avg_reward + reward) / (arm.pulled + 1)
         # action = (action - lower)/(self.sigma_square - lower)
         # action = self.current_action
+        '''
         if reward > self.max_profit:
             self.max_profit = reward
         elif reward < self.min_profit:
@@ -219,10 +239,12 @@ class Zooming:
             reward = (reward - low)/(high - low)
 
         arm.avg_learning_reward = (arm.pulled * arm.avg_learning_reward + reward) / (arm.pulled + 1)
+        '''
         arm.pulled += 1
 
     def show_learning(self):
-        pass
+        for arm in self.active_arms:
+            print(f"arm: {arm.index}, value: {arm.value}, pulled: {arm.pulled}, avg_reward: {arm.avg_reward}")
 
 
 def calc_confidence_radius(i_ph, arm: Arm):
@@ -232,31 +254,50 @@ def calc_confidence_radius(i_ph, arm: Arm):
 class EpsilonGreedy:
     def __init__(self, action_space, eps_greedy=0.95, eps_decay=0.9995,
                  mu=0):
-        self.action_space = action_space
+        self.action_space = np.array(action_space)
+        self.avg_rewards = np.zeros(len(action_space))
+        self.pulled = np.zeros(len(action_space))
         # gamma, discount, reward decay
         self.eps_decay = eps_decay
         # epsilon
         self.eps_greedy = eps_greedy
         # Q-table
         self.q_table = pd.DataFrame(0, index=[0], columns=action_space)
+        self.action_index = 0
         # value functions: action_value_method, q-learning, UCB
 
-    def choose_action(self, rounds):
+    def choose_action(self, episode):
         if np.random.uniform() > self.eps_greedy:
-            # only one observation/state
             # exploitation
-            state_action = self.q_table.loc[0, :]
-            state_action = state_action.reindex(np.random.permutation(state_action.index))
-            action = state_action.idxmax()
+            self.action_index = np.argmax(self.avg_rewards)
         else:
             # exploration
-            action = np.random.choice(self.action_space)
+            self.action_index = np.random.randint(len(self.action_space))
+        action = self.action_space[self.action_index]
         return action
 
-    def learn(self, action, reward, episode):
-        # update q_table
-        current_q = self.q_table.loc[0, action]
-        new_q = current_q + (1/(episode + 1)) * (reward - current_q)
-        self.q_table.loc[0, action] = new_q
-
+    def learn(self, reward, episode):
+        # update #pulled, mean, epsilon
+        i = self.action_index
+        self.pulled[i] = self.pulled[i] + 1
+        self.avg_rewards[i] = self.avg_rewards[i] + 1 / self.pulled[i] * (reward - self.avg_rewards[i])
         self.eps_greedy *= self.eps_decay
+
+    def show_learning(self):
+        print(f"epsilon: {self.eps_greedy}")
+        for i in range(len(self.action_space)):
+            print(f"action: {self.action_space[i]}, avg_reward: {self.avg_rewards[i]}, pulled: {self.pulled[i]}")
+
+
+class Random:
+    def __init__(self, action_space, mu=0):
+        self.action_space = action_space
+
+    def choose_action(self, rounds):
+        return random.uniform(self.action_space[0], self.action_space[1])
+
+    def learn(self, reward, i):
+        pass
+
+    def show_learning(self):
+        pass

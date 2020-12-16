@@ -6,11 +6,12 @@ debug = False
 
 
 class DataProvider:
-    def __init__(self, mu,  sigma_square, cost_function, agent):
+    def __init__(self, mu,  sigma_square, cost_function, agent, setup):
         self.mu = mu
         self.sigma_square = sigma_square
         self.cost_function = cost_function
         self.agent = agent
+        self.setup = setup
 
         self.s_square = None
 
@@ -20,9 +21,12 @@ class DataProvider:
     def choose_action(self, episode):
         self.s_square = self.agent.choose_action(episode)
 
-        # rescale s_square to from interval [0, 1] to [min, sigma_square]
-        min = 0.0
-        # self.s_square = (self.sigma_square - min) / (1 - 0) * (self.s_square - 1) + self.sigma_square
+        # rescale s_square to from interval [0, 1] to [lower, sigma_square]
+        if self.setup == 'eps_greedy':
+            pass
+        else:
+            lower = 0.0
+            self.s_square = (self.sigma_square - lower) / (1 - 0) * (self.s_square - 1) + self.sigma_square
 
         self.actions.append(self.s_square)
         return self.s_square
@@ -38,14 +42,26 @@ class DataProvider:
             print(f"Payment: {payment}, costs: {costs}, reward: {reward}, s_square: {self.s_square}")
 
         # logistic function with logistic growth k and midpoint x_0
-        # reward = reward / 10
-        '''
-        x_0 = 2
-        if (reward - x_0) < 0:
-            reward = 1 - 1 / (1 + math.exp(k * (reward-x_0)))
-        else:
-            reward = 1 / (1 + math.exp(-k * (reward-x_0)))
-        '''
+        if self.setup == 'stretch':
+            reward = reward / 10
+        elif self.setup == 'logistic':
+            x_0 = 0
+            if (reward - x_0) < 0:
+                reward = 1 - 1 / (1 + math.exp(k * (reward-x_0)))
+            else:
+                reward = 1 / (1 + math.exp(-k * (reward-x_0)))
+        elif self.setup == 'bounded':
+            high = 50
+            low = -50
+            if reward >= high:
+                reward = 1
+            elif reward <= low:
+                reward = 0
+            else:
+                reward = (reward - low) / (high - low)
+        elif self.setup == 'eps_greedy' or self.setup == 'real':
+            pass
+
         self.agent.learn(reward, i)
 
     def perform_measurement(self, predictor):

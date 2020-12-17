@@ -51,15 +51,15 @@ class DataProvider:
             else:
                 reward = 1 / (1 + math.exp(-k * (reward-x_0)))
         elif self.setup == 'bounded':
-            high = 30
-            low = -20
+            high = 75
+            low = -75
             if reward >= high:
                 reward = 1
             elif reward <= low:
                 reward = 0
             else:
                 reward = (1 - 0) / (high - low) * (reward - high) + 1
-        elif self.setup == 'eps_greedy' or self.setup == 'real':
+        elif self.setup == 'eps_greedy' or self.setup == 'real' or self.setup == 'outliers':
             pass
 
         self.agent.learn(reward, i)

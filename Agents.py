@@ -7,10 +7,11 @@ import portion as P
 
 
 class HierarchicalOptimisticOptimization:
-    def __init__(self, action_space, v1, rho):
+    def __init__(self, action_space, v1, rho, setup):
         # value functions: action_value_method, q-learning, UCB
         self.v1 = v1
         self.rho = rho
+        self.setup = setup
 
         root = Node.Node(action_space[0], action_space[1], 0, 1, 0)
         root.active = True
@@ -50,25 +51,23 @@ class HierarchicalOptimisticOptimization:
         self.row_list.append({'node': highest_b_leaf, 'value': reward})
 
         # look for outliers
-        '''
-        if n >= 100:
-            if n == 100 or math.log(n, 2) % 2 == 0:
-                df = pd.DataFrame(self.row_list, columns=['node', 'value'])
-                q_1, q_3 = df.value.quantile([0.25, 0.75])
-                iqr = q_3 - q_1
-                self.lower_limit = q_1 - 1.5 * iqr
-                self.upper_limit = q_3 + 1.5 * iqr
-                print(f"Round {n} lower limit: {self.lower_limit}, upper limit: {self.upper_limit}")
+        if self.setup == 'outliers':
+            if n >= 100:
+                if n == 100 or math.log(n, 2) % 2 == 0:
+                    df = pd.DataFrame(self.row_list, columns=['node', 'value'])
+                    q_1, q_3 = df.value.quantile([0.25, 0.75])
+                    iqr = q_3 - q_1
+                    self.lower_limit = q_1 - 1.5 * iqr
+                    self.upper_limit = q_3 + 1.5 * iqr
+                    print(f"Round {n} lower limit: {self.lower_limit}, upper limit: {self.upper_limit}")
 
-            if reward < self.lower_limit:
-                self.below_limit += 1
-                # print(f"Skipped ({highest_b_leaf.lower}, {highest_b_leaf.higher}), {reward}")
-                reward = self.lower_limit
-        '''
+                if reward < self.lower_limit:
+                    self.below_limit += 1
+                    # print(f"Skipped ({highest_b_leaf.lower}, {highest_b_leaf.higher}), {reward}")
+                    reward = self.lower_limit
+
         # extend the tree
         highest_b_leaf.active = True
-
-        # reward = reward / 15
 
         # Update the statistics node.count and node.mean
         for node in self.root.path(highest_b_leaf):
@@ -103,22 +102,21 @@ class HierarchicalOptimisticOptimization:
             parent.remove(leaf)
 
         # remove outliers
-        '''
-        if n == 100:
-            df = pd.DataFrame(self.row_list, columns=['node', 'value'])
-            q_1, q_3 = df.value.quantile([0.25, 0.75])
-            iqr = q_3 - q_1
-            lower_limit = q_1 - 1.5 * iqr
-            for index, row in df.iterrows():
-                if row['value'] < lower_limit:
-                    print(f"Removed ({row['node'].lower}, {row['node'].higher}), reward {row['value']}")
-                    for node in reversed(self.root.path(row['node'])):
-                        if node.count == 1:
-                            self.root.find_and_remove(node)
-                        else:
-                            node.mean = ((node.mean * node.count) - row['value']) / (node.count - 1)
-                            node.count -= 1
-        '''
+        if self.setup == 'outliers':
+            if n == 100:
+                df = pd.DataFrame(self.row_list, columns=['node', 'value'])
+                q_1, q_3 = df.value.quantile([0.25, 0.75])
+                iqr = q_3 - q_1
+                lower_limit = q_1 - 1.5 * iqr
+                for index, row in df.iterrows():
+                    if row['value'] < lower_limit:
+                        print(f"Removed ({row['node'].lower}, {row['node'].higher}), reward {row['value']}")
+                        for node in reversed(self.root.path(row['node'])):
+                            if node.count == 1:
+                                self.root.find_and_remove(node)
+                            else:
+                                node.mean = ((node.mean * node.count) - row['value']) / (node.count - 1)
+                                node.count -= 1
 
     def show_learning(self):
         self.root.print_tree_depth(4)

@@ -7,10 +7,10 @@ import math
 from py_expression_eval import Parser
 
 # training
-rounds = 100000
+rounds = 10000
 
 # setups: 'eps_greedy', 'stretch', 'logistic', 'real', 'bounded'
-setup = "logistic"
+setup = "eps_greedy"
 # cost functions: 'log', 'exp'
 cost_function = 'exp'
 # data set parameter
@@ -24,16 +24,16 @@ with_data_set = False
 # v1 = 1.5
 rho = 0.5
 v1 = 1
-# agent1 = Agents.HierarchicalOptimisticOptimization([0, 1], v1=v1, rho=rho)
-# agent2 = Agents.HierarchicalOptimisticOptimization([0, 1], v1=v1, rho=rho)
-agent1 = Agents.Zooming([0, 1])
-agent2 = Agents.Zooming([0, 1])
+# agent1 = Agents.HierarchicalOptimisticOptimization([0, 1], v1=v1, rho=rho, setup=setup)
+# agent2 = Agents.HierarchicalOptimisticOptimization([0, 1], v1=v1, rho=rho, setup=setup)
+# agent1 = Agents.Zooming([0, 1])
+# agent2 = Agents.Zooming([0, 1])
 # agent1 = Agents.Random([0, 1])
 # agent2 = Agents.Random([0, 1])
 discrete_actions = [[0.01, 0.07, 0.13, 0.19, 0.25, 0.31, 0.37, 0.43, 0.49],
                     [0.01, 0.045, 0.08, 0.115, 0.15, 0.185, 0.22, 0.255, 0.29]]
-# agent1 = Agents.EpsilonGreedy(discrete_actions[0], eps_greedy=0.999, eps_decay=0.9996)
-# agent2 = Agents.EpsilonGreedy(discrete_actions[1], eps_greedy=0.999, eps_decay=0.9996)
+agent1 = Agents.EpsilonGreedy(discrete_actions[0], eps_greedy=0.999, eps_decay=0.9996)
+agent2 = Agents.EpsilonGreedy(discrete_actions[1], eps_greedy=0.999, eps_decay=0.9996)
 
 # DPG parameter
 logistic_growth = 0.2
@@ -60,7 +60,7 @@ if cost_function == 'log':
     cost_function = parser.parse(cost_log)
     optimal_rewards = [6.991, 0.658]
 elif cost_function == 'exp':
-    cost_exp = "sigma_square * exp(-5 * ((s_square - 0.2) - sigma_square)) -sigma_square * exp(-5*(-0.2))"
+    cost_exp = "sigma_square * exp(-5 * (s_square - 0.2 - sigma_square)) -sigma_square * exp(-5*(-0.2))"
     cost_function = parser.parse(cost_exp)
     optimal_rewards = [2.8721, 0.4407]
 else:
@@ -130,6 +130,6 @@ if __name__ == "__main__":
     # plt.plot([i for i in range(len(overall_moving_avg))], overall_moving_avg, label='sum of rewards')
 
     plt.legend(loc='upper left')
-    plt.ylabel(f"Rewards {SHOW_EVERY}ma")
-    plt.xlabel(f"episode #")
+    plt.ylabel(f"Rewards and regrets {SHOW_EVERY}ma")
+    plt.xlabel(f"time step")
     plt.show()

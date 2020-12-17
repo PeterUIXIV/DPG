@@ -43,7 +43,7 @@ class DataProvider:
 
         # logistic function with logistic growth k and midpoint x_0
         if self.setup == 'stretch':
-            reward = reward / 10
+            reward = reward / 5
         elif self.setup == 'logistic':
             x_0 = 0
             if (reward - x_0) < 0:
@@ -51,14 +51,14 @@ class DataProvider:
             else:
                 reward = 1 / (1 + math.exp(-k * (reward-x_0)))
         elif self.setup == 'bounded':
-            high = 50
-            low = -50
+            high = 30
+            low = -20
             if reward >= high:
                 reward = 1
             elif reward <= low:
                 reward = 0
             else:
-                reward = (reward - low) / (high - low)
+                reward = (1 - 0) / (high - low) * (reward - high) + 1
         elif self.setup == 'eps_greedy' or self.setup == 'real':
             pass
 

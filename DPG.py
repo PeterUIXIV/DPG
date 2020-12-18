@@ -43,7 +43,7 @@ class DataProvider:
 
         # logistic function with logistic growth k and midpoint x_0
         if self.setup == 'stretch':
-            reward = reward / 5
+            reward = reward / 10
         elif self.setup == 'logistic':
             x_0 = 0
             if (reward - x_0) < 0:

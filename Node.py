@@ -20,14 +20,14 @@ class Node:
     def print_tree(self):
         if self.left and self.left.active:
             self.left.print_tree()
-        print(f"({self.lower}, {self.higher}), b: {self.b}, u: {self.u}, mean {self.mean}, times {self.count}"),
+        print(f"({self.lower}, {self.higher}), b: {self.b}, u: {self.u}, mean: {self.mean}, times: {self.count}"),
         if self.right and self.right.active:
             self.right.print_tree()
 
     def print_tree_depth(self, depth):
         root = self
         if root and 0 < depth:
-            print(f"({self.lower}, {self.higher}), b: {self.b}, u: {self.u}, mean {self.mean}, times {self.count}")
+            print(f"({self.lower}, {self.higher}), b: {self.b}, u: {self.u}, mean: {self.mean}, times: {self.count}")
             if root.left:
                 root.left.print_tree_depth(depth - 1)
             if root.right:

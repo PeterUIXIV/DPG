@@ -42,7 +42,7 @@ class DataProvider:
             print(f"Payment: {payment}, costs: {costs}, reward: {reward}, s_square: {self.s_square}")
 
         # logistic function with logistic growth k and midpoint x_0
-        if self.setup == 'stretch':
+        if self.setup == 'stretch' or self.setup == 'outliers':
             reward = reward / 10
         elif self.setup == 'logistic':
             x_0 = 0
@@ -59,7 +59,7 @@ class DataProvider:
                 reward = 0
             else:
                 reward = (1 - 0) / (high - low) * (reward - high) + 1
-        elif self.setup == 'eps_greedy' or self.setup == 'real' or self.setup == 'outliers':
+        elif self.setup == 'eps_greedy' or self.setup == 'real':
             pass
 
         self.agent.learn(reward, i)

@@ -177,10 +177,9 @@ class Node:
                 current.right.b = float("inf")
                 return
 
+
 def subtree_height(node):
     if node is None:
         return 0
     else:
         return max(subtree_height(node.left), subtree_height(node.right)) + 1
-
-

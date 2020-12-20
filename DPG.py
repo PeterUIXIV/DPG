@@ -32,8 +32,6 @@ class DataProvider:
         return self.s_square
 
     def receive_payment(self, payment, i, k):
-        # costs = eval(self.cost_function, {"s_square": self.s_square, "sigma_square": self.sigma_square})
-        # costs = Training.cost_function(sigma_square=self.sigma_square, s_square=self.s_square)
         costs = self.cost_function.evaluate({"s_square": self.s_square, "sigma_square": self.sigma_square})
         reward = payment - costs
         self.rewards.append(reward)
@@ -41,10 +39,10 @@ class DataProvider:
         if debug:
             print(f"Payment: {payment}, costs: {costs}, reward: {reward}, s_square: {self.s_square}")
 
-        # logistic function with logistic growth k and midpoint x_0
         if self.setup == 'stretch' or self.setup == 'outliers':
             reward = reward / 10
         elif self.setup == 'logistic':
+            # logistic function with logistic growth k and midpoint x_0
             x_0 = 0
             if (reward - x_0) < 0:
                 reward = 1 - 1 / (1 + math.exp(k * (reward-x_0)))
